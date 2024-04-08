@@ -1,0 +1,138 @@
+//Title: Rural-Urban Extents Code for individual country
+//Code author: Sarah Castle
+//Corresponds to Farrae M., Castle, S.E., Miller, D.C. (in prep) Mapping the spatial relationship between forests and poverty: A new methodology and evidence from Pakistan. 
+//Originally published with FAO technical report: Citation: Newton, P., Castle, S.E., Kinzer, A.T., Miller, D.C., Oldekop, J.A., Linhares-Juvenal, T., Madrid, M., Pina, L. 2022. The number of forest- and tree-proximate people: a new methodology and global estimates. Rome, FAO. 
+
+//User defined input variables. Please select appropriate variables for current analysis here.
+//Current analysis settings are for estimating rural (non-urban) extents in the year 2018 for Pakistan. 
+  //High density urban areas were defined as contiguous areas with a total population 
+  //of at least 50,000 people and comprised of pixels which met at least one of two criteria: either 
+  //the pixel a) had at least 1,500 people per square km, or b) was classified as “built-up” land use 
+  //by the CGLC dataset (where “built-up” was defined as land covered by buildings and other manmade structures).
+var year = 2018; //Select year for analysis. Here, 2019 for latest data.
+var country = 'PAK';
+var urban_pop_dens = 1500; //Select cutoff for urban population density. Default value is 1500 people per square kilometer or more as high-density urban. 
+var totalpop_cutoff = 50000; //Select cutoff for total population. Default value is 50 000 people or more in contiguous pixels as high-density urban.
+
+//Define Google Earth Engine asset name
+var ruralPop_GEEasset = 'ruralPop_'+country+'_GEEasset_'+year; //Define name of Google Earth Engine asset to be exported. Running this task will produce a sharable Google Earth Engine asset of the rural extents data layer. 
+
+
+//Only need to change the following if there is an update to the datasets. See GEE documentation.
+  //WorldPop documentation: https://developers.google.com/earth-engine/datasets/catalog/WorldPop_GP_100m_pop?hl=en#description
+  //Copernicus Global Land Cover (CGLC) documentation: https://developers.google.com/earth-engine/datasets/catalog/COPERNICUS_Landcover_100m_Proba-V-C3_Global?hl=en#description
+  //MODIS Land Cover documentation: https://developers.google.com/earth-engine/datasets/catalog/MODIS_006_MCD12Q1?hl=en#description
+var worldPopIC = "WorldPop/GP/100m/pop"; //Select GEE WorldPop population data Image Collection path. 
+var MODIS_IC = "MODIS/006/MCD12Q1"; //Select GEE Copernicus Global Land Cover Image Collection path.
+var CGLC_IC = "COPERNICUS/Landcover/100m/Proba-V-C3/Global/"+year; //Select GEE Copernicus Global Land Cover Image Collection path.
+
+//No additional user inputs required past this point. 
+//--------------------------------------------------------------------------//
+//var proj = ee.Projection('EPSG:4326');
+
+//Import WorldPop gridded population data from Google Earth Engine (GEE) database. 
+//WorldPop is a 100-meter spatial resolution, annually released globally gridded population dataset. 
+//See: https://developers.google.com/earth-engine/datasets/catalog/WorldPop_GP_100m_pop?hl=en#description
+var populationdata = ee.ImageCollection(worldPopIC)
+  .filter(ee.Filter.equals('year', year)) //Select year for analysis. Here, 2019 for latest data.
+  .filter(ee.Filter.equals('country', country))
+  .select('population').mosaic();
+  
+var visualization = {
+//  bands: ['population'],
+  min: 0.0,
+  max: 50.0,
+  palette: ['24126c', '1fff4f', 'd4ff50']
+};
+
+Map.addLayer(populationdata,visualization,'popdata');
+
+var populationdataimg = populationdata.reduce({reducer: ee.Reducer.sum()});
+var populationdata1 = populationdataimg.add(1);//.setDefaultProjection({crs:populationdata.projection().crs()});
+
+//Import Copernicus Global Land Cover (CGLC) data from GEE database.
+//CGLC is a 100-meter spatial resolution, annually released globally gridded land cover dataset.
+//See: https://developers.google.com/earth-engine/datasets/catalog/COPERNICUS_Landcover_100m_Proba-V-C3_Global?hl=en#description
+var landCover = ee.Image(CGLC_IC) //select latest year for analysis. Here, 2019 is the latest year.
+.select('discrete_classification').mask(populationdata1); //Select discrete classifications scheme. Also available: fractional land cover; forest/non-forest
+
+//Select land cover classified as "developed" in the CGLC dataset
+var developed = landCover.eq(50);
+//Map.addLayer(developed,{},"Developed");
+
+var maxPix = ee.Number((1000/100)*(1000/100)); //variable for rescaling from 100m to 1000m resolution. The maximum number of input pixels to combine for each output pixel. 
+
+//reproject population data from 100m resolution to 1000m resolution.
+var popKm = populationdata.reproject({crs: populationdata.projection().crs(), scale:1000}).reduceResolution({reducer: ee.Reducer.mean(), maxPixels:maxPix}).multiply(maxPix);
+//select high density pixels as those with greater than 1,500 people per square kilometer.
+var highdens = popKm.gt(urban_pop_dens) //can vary this value based on definition of urban areas
+  .rename('highdens');
+//reproject "developed" land use data from 100m resolution to 1000m resolution.  
+var devKm = developed.reproject({crs: populationdata.projection().crs(), scale:1000});
+//define potential cities as areas with high density or developed areas
+var cities = highdens.or(devKm).selfMask().rename('cities');
+//Map.addLayer(cities,{},'cities');
+//find contiguous areas that meet at least one of these two criteria (high density or developed pixels)
+var objectID = cities.connectedComponents({
+  connectedness: ee.Kernel.square(1),
+  maxSize: 1023
+});
+//mask the population data with the contiguous cities area to determine total population of contigous areas
+var maskcities = popKm.mask(objectID.select('cities'));
+//add labels identifying the contigous areas
+var citypop = maskcities.addBands(objectID.select('labels')); 
+//find the mean population of the contigous areas of high density/developed pixels
+var patchPop = citypop.reduceConnectedComponents({
+  reducer: ee.Reducer.mean(),
+  labelBand: 'labels',
+  maxSize: 2048
+});
+//add labels identifying the contigous areas
+var patchPop2 = patchPop.addBands(objectID.select('labels'));
+//create an image pixel areas to multiply the city area by.
+var pixelArea = ee.Image.pixelArea();
+// Compute the number of pixels in each city defined by the "labels" band.
+var citySize = patchPop2.select('labels')
+.connectedPixelCount({
+  maxSize: 1024, eightConnected: true
+});
+//calculate the city area
+var cityArea = citySize.multiply(pixelArea);
+//calculate the total population of the city
+var city_population = cityArea.multiply(patchPop2.select('population')).divide(ee.Number(1000000));
+//define urban areas as cities with a population greater than 50,000 (or 20,000, or any user specified value)
+var urbanAreas = city_population.gt(totalpop_cutoff) 
+  .selfMask()
+  .rename('urbanAreas'); 
+
+//print('urbanAreas: ', populationdata.map(popuKm2));
+///var urbanAreas = populationdata.map(popuKm2);
+//Map.addLayer(urbanAreas, {palette: ['24126c', '1fff4f', 'd4ff50']}, 'urbanAreas');
+
+//create an image of urban areas
+var urban_img = urbanAreas.reduce({reducer: ee.Reducer.sum()});
+//Map.addLayer(urban_img, {palette: ['24126c', '1fff4f', 'd4ff50']}, 'urban_img');
+//print('urban_img',urban_img);
+
+//to generate a map of rural areas, unmask the masked rural areas and set to value of 3. Urban areas have a value of 1.
+var ones = urban_img.unmask(3);
+//get only rural areas (value=3) and mask out urban areas (value=1) to generate rural area image
+var rural = ones.gt(2).mask(populationdata1) 
+  .selfMask()
+  .rename('rural');
+//Map.addLayer(ones, {palette: '1fff4f'}, 'ones');
+//Map.addLayer(rural, {palette: 'd4ff50'}, 'rural');
+
+//mask population data with rural areas to generate rural population layer
+var ruralPopOut = populationdata.mask(rural);
+Map.addLayer(ruralPopOut, {min:0,max:20,palette: ['24126c', '1fff4f', 'd4ff50']}, 'ruralPopOut');
+print('ruralAreas:',ruralPopOut);
+
+//Export rural population layer to GEE asset. Import this asset into the FPP code and rural world population code. 
+Export.image.toAsset({
+  image: ruralPopOut,
+  description: ruralPop_GEEasset,
+  scale:1000,
+  maxPixels:1e13,
+  region: populationdataimg.geometry()
+});
