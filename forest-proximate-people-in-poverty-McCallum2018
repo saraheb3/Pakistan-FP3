@@ -1,0 +1,521 @@
+//Title: Forest Proximate People in Poverty - Pakisatan - Code
+//Authors: Sarah Castle, Mohammad Farrae, Daniel Miller
+//Date: 9 September 2022
+//See FAO technical report: Citation: Newton, P., Castle, S.E., Kinzer, A.T., Miller, D.C., Oldekop, J.A., Linhares-Juvenal, T., Madrid, M., Pina, L. 2022. The number of forest- and tree-proximate people: a new methodology and global estimates. Rome, FAO. 
+
+//Imports
+var pakistanbounds2 = ee.FeatureCollection("users/saraheb3/pak_admbnda_adm2_wfp_20220909"),
+    povertyAssetMccallum2018 = ee.Image("users/saraheb3/poverty/Pakistan_Mcca3"),
+    ruralPopAssetPakistan2018 = ee.Image("users/saraheb3/ruralPop_PAK_GEEasset_2018"),
+    C3S2018 = ee.Image("users/saraheb3/C3S-2018"),
+    forestsESAWC = ee.Image("users/saraheb3/PAK_ESAWC_Forests72m"),
+    forests2012 = ee.Image("users/saraheb3/Pak_forest_2012");
+
+//Select forest cover dataset
+
+
+//Select "forest" land cover classifications
+/*
+111	58481F	Closed forest, evergreen needle leaf. Tree canopy >70 %, almost all needle leaf trees remain green all year. Canopy is never without green foliage.
+112	009900	Closed forest, evergreen broad leaf. Tree canopy >70 %, almost all broadleaf trees remain green year round. Canopy is never without green foliage.
+113	70663E	Closed forest, deciduous needle leaf. Tree canopy >70 %, consists of seasonal needle leaf tree communities with an annual cycle of leaf-on and leaf-off periods.
+114	00CC00	Closed forest, deciduous broad leaf. Tree canopy >70 %, consists of seasonal broadleaf tree communities with an annual cycle of leaf-on and leaf-off periods.
+115	4E751F	Closed forest, mixed.
+116	007800	Closed forest, not matching any of the other definitions.
+121	666000	Open forest, evergreen needle leaf. Top layer- trees 15-70 % and second layer- mixed of shrubs and grassland, almost all needle leaf trees remain green all year. Canopy is never without green foliage.
+122	8DB400	Open forest, evergreen broad leaf. Top layer- trees 15-70 % and second layer- mixed of shrubs and grassland, almost all broadleaf trees remain green year round. Canopy is never without green foliage.
+123	8D7400	Open forest, deciduous needle leaf. Top layer- trees 15-70 % and second layer- mixed of shrubs and grassland, consists of seasonal needle leaf tree communities with an annual cycle of leaf-on and leaf-off periods.
+124	A0DC00	Open forest, deciduous broad leaf. Top layer- trees 15-70 % and second layer- mixed of shrubs and grassland, consists of seasonal broadleaf tree communities with an annual cycle of leaf-on and leaf-off periods.
+125	929900	Open forest, mixed.
+126	648C00	Open forest, not matching any of the other definitions.
+*/
+var forestswater = landCover.gt(100).rename('forestw'); 
+var notwater = landCover.lt(200).rename('forests'); 
+//var forests = forestswater.and(notwater);
+
+//-Visualize raw forests data at 100-meter resolution-
+//Remove comments from following three lines to visualize forests data layer:
+
+//Map.addLayer(forests, {}, "Copernicus Forest Cover");
+//print('forests:',forests);
+
+
+var esri_lulc_ts= ee.ImageCollection("projects/sat-io/open-datasets/landcover/ESRI_Global-LULC_10m_TS").filterDate('2018-01-01', '2018-12-31');
+var esri_lulc_tsimg = esri_lulc_ts.reduce({reducer: ee.Reducer.mode()});
+esri_lulc_tsimg = esri_lulc_tsimg.mask(populationdata1);
+print(esri_lulc_tsimg);
+var esriForests = esri_lulc_tsimg.eq(2);
+//var forests = esriForests;
+//Map.addLayer(esriForests, {}, "ESRI Forest Cover");
+
+var ESA_WC = ee.ImageCollection("ESA/WorldCover/v100").first().select('Map');
+ESA_WC = ESA_WC.mask(populationdata1);
+var Forests11 = ESA_WC.eq(10);
+//var forests = forestsESAWC;
+//Map.addLayer(Forests11, {}, "ESA WC Forest Cover");
+
+
+
+//Forest/Non-forest Dataset
+var landCover = ee.ImageCollection('JAXA/ALOS/PALSAR/YEARLY/FNF4')
+                  .filterDate(year+'-01-01', year+'-12-31');
+var forestNonForest = landCover.select('fnf');
+var forestNonForestVis = {
+  min: 1.0,
+  max: 4.0,
+  palette: ["00B200","83EF62","FFFF99","0000FF"],
+};
+//Map.addLayer(forestNonForest, forestNonForestVis, 'Forest/Non-Forest');
+
+forestNonForest = forestNonForest.reduce({reducer: ee.Reducer.median()});
+//Map.addLayer(forestNonForest,forestNonForestVis,'FNF');
+
+forestNonForest = forestNonForest.mask(populationdata1);
+//Map.addLayer(forestNonForest,forestNonForestVis,'FNF');
+//var forests = forestNonForest.lte(2);
+
+var dataset = ee.ImageCollection('MODIS/006/MCD12Q1');
+var igbpLandCover = dataset.select('LC_Type1').filterDate('2019-01-01', '2019-12-31');
+
+igbpLandCover = igbpLandCover.first().mask(populationdata1);
+
+var Forests2 = igbpLandCover.lt(6);
+//var forests = Forests2;
+
+var dataset = ee.ImageCollection('MODIS/006/MCD12Q1');
+var FAOLandCover = dataset.select('LC_Prop1').filterDate('2019-01-01', '2019-12-31');
+
+var gtFAO = FAOLandCover.first().gt(10);
+var ltFAO = FAOLandCover.first().lt(23);
+var Forests7 = gtFAO.and(ltFAO);
+Forests7 = Forests7.mask(populationdata1);
+//var forests = Forests7;
+
+var gtC3S = C3S2018.gte(50);
+var ltC3s = C3S2018.lte(90);
+var Forests13 = gtC3S.and(ltC3s);
+//var forests = Forests13;
+
+var forests = forests2012; //Select which forest cover dataset to use. 
+
+//User defined input variables. Please select appropriate variables for current analysis here.
+//Current analysis settings are for estimating forest proximate people in poverty in the year 2007 for Pakistan. 
+  //Forest proximity is defined by people living in or within 5 kilometers (5000 meters) of land 
+  //classified as forest per the PALSAR Forest/Non-forest dataset. High density urban areas 
+  //were excluded, where these urban areas were defined as contiguous areas with a total population 
+  //of at least 50,000 people and comprised of pixels which met at least one of two criteria: either 
+  //the pixel a) had at least 1,500 people per square km, or b) was classified as “built-up” land use 
+  //by the MODIS dataset (where “built-up” was defined as land covered by buildings and other manmade structures).
+  //Gridded (1km *1 km ) estimate of poverty in Pakistan. Weblink that contains details of the methodology used to produce the data: 
+  //https://hub.worldpop.org/resources/docs/pdf/Poverty-mapping-report.pdf. 
+
+var country = 'PAK'; //country code //Select country of analysis using country code. Here, Pakistan. 
+//See https://www.worldpop.org/resources/docs/national_boundaries/global-input-population-data-summary.xlsx for country codes.
+
+var year = 2018; //Select year for analysis. Here, 2019 for latest data.
+var distance = 1000; //Select distance parameter in meters (search radius for identifying population with XX meters of forest pixels)
+var ruralImage = ruralPopAssetPakistan2018; //Select Google Earth Engine asset name corresponding to user-generated rural population (generated by running the "urban_rural_code_publication" code).
+
+//Define Google Earth Engine asset name
+var FPPasset = 'PAK_FPP_1km_GEEasset';
+var FPPpovertyasset = 'PAK_FPP_poverty_1km_GEEasset';
+
+//Define export file names 
+var ForestimageDescription = 'PAK_worldforests2018_image'; //select name for forests image export (exports GeoTIFF file to user's Google Drive)
+var FPPimageDescription = 'PAK_FPP2018_1km_image'; //select name for forest proximate people image export (exports GeoTIFF file to user's Google Drive)
+var FPPpovertyimageDescription = 'PAK_McCallum_FPP_poverty2018_1km_image'; //select name for forest proximate people image export (exports GeoTIFF file to user's Google Drive)
+
+var FPPDistrictTableDescription = 'PAK_FPP2018_byDistrict_1km'; //select name for forest proximate people image export (exports GeoTIFF file to user's Google Drive)
+var FPPpovertyDistrictTableDescription = 'PAK_FPPpovertyMcCallum2018_byDistrict_1km';
+//In Tasks only run whichever of these export tasks you would like to export.
+
+//Only need to change the following if there is an update to the datasets. See GEE documentation.
+  //WorldPop documentation: https://developers.google.com/earth-engine/datasets/catalog/WorldPop_GP_100m_pop?hl=en#description
+  //Copernicus Global Land Cover (CGLC) documentation: https://developers.google.com/earth-engine/datasets/catalog/COPERNICUS_Landcover_100m_Proba-V-C3_Global?hl=en#description
+  //MODIS Land Cover documentation: https://developers.google.com/earth-engine/datasets/catalog/MODIS_006_MCD12Q1?hl=en#description
+var worldPopIC = "WorldPop/GP/100m/pop"; //Select GEE WorldPop population data Image Collection path. 
+var FNF = "JAXA/ALOS/PALSAR/YEARLY/FNF"; //Select GEE Copernicus Global Land Cover Image Collection path.
+var CGLC_IC = "COPERNICUS/Landcover/100m/Proba-V-C3/Global/"+year; //Select GEE Copernicus Global Land Cover Image Collection path.
+
+//NOTE: Import the generated rural population data layer before running this code.
+//To test and visualize the rural population data layer uncomment the following line:
+//Map.addLayer(ruralImage,visualization,'ruralImage');
+
+//No additional user inputs required past this point. 
+//--------------------------------------------------------------------------//
+
+//Map.addLayer(pakistanbounds2,{},'pakistan boundaries');
+//print(pakistanbounds2);
+
+//Import WorldPop gridded population data from Google Earth Engine (GEE) database. 
+//WorldPop is a 100-meter spatial resolution, annually released globally gridded population dataset. 
+//See: https://developers.google.com/earth-engine/datasets/catalog/WorldPop_GP_100m_pop?hl=en#description
+var populationdata = ee.ImageCollection(worldPopIC)
+  .filter(ee.Filter.equals('year', year)) //Select year for analysis. Here, 2019 for latest data.
+  .filter(ee.Filter.equals('country', country))
+  .select('population');//.mosaic();
+
+var populationdataimg = populationdata.reduce({reducer: ee.Reducer.median()});
+var populationdata1 = populationdataimg.add(1);
+//Select color scheme for visualizing population data
+var visualization = {
+  min: 0.0,
+  max: 50.0,
+  palette: ['24126c', '1fff4f', 'd4ff50']
+};
+
+//Map.addLayer(ruralImage,visualization,'ruralImage');
+
+var visualization2 = {
+  min: 1.0,
+  max: 3.0,
+  palette: ['24126c', '1fff4f', 'd4ff50']
+};
+//Map.addLayer(povertyAssetMccallum2017.selfMask(),visualization2,'poverty 2017');
+
+
+//-Visualize raw population data at 100-meter resolution.-
+//Remove comments from following three lines to visualize population data layer:
+
+//Map.setCenter(0, 34.769, 2);
+
+//Map.addLayer(populationdata, visualization, 'Population');
+//print('Population data',populationdata);
+
+
+//Import Copernicus Global Land Cover (CGLC) data from GEE database.
+//CGLC is a 100-meter spatial resolution, annually released globally gridded land cover dataset.
+//See: https://developers.google.com/earth-engine/datasets/catalog/COPERNICUS_Landcover_100m_Proba-V-C3_Global?hl=en#description
+var landCover = ee.Image(CGLC_IC) //select latest year for analysis. Here, 2019 is the latest year.
+.select('discrete_classification'); //Select discrete classifications scheme. Also available: fractional land cover; forest/non-forest
+
+landCover = landCover.mask(populationdata1);
+
+//-Visualize raw land cover data at 100-meter resolution-
+//Remove comments from following three lines to visualize land cover data layer:
+
+//Map.setCenter(0, 0, 2);
+//Map.addLayer(landCover, {}, "Land Cover");
+//print('landcover',landCover);
+
+
+var geom = populationdata.geometry();
+
+var pixelArea = ee.Image.pixelArea().mask(populationdata1);
+//Map.addLayer(pixelArea,{},'pixelArea');
+
+var PakAreaSum = ee.Image(pixelArea).reduceRegion({ //generate sum of TPP population for each country
+  geometry: geom,
+  reducer: ee.Reducer.sum(),
+  scale: 100, //use data layer resolution (~93m) 
+  tileScale:16, //set to 16 to avoid processing limitations
+  maxPixels:1e13,
+  //bestEffort: true
+});
+
+var squareMetersA = PakAreaSum.getNumber('area');
+var squareKilometersA = squareMetersA.divide(1e6);
+print("Total area sq km: ",squareKilometersA);
+
+
+var maskedForestArea = pixelArea.updateMask(forests).selfMask();
+//Map.addLayer(maskedForestArea,{},'maskedForestArea');
+
+var forestAreaSum = ee.Image(maskedForestArea).reduceRegion({ //generate sum of TPP population for each country
+  geometry: geom,
+  reducer: ee.Reducer.sum(),
+  scale: 100, //use data layer resolution (~93m) 
+  tileScale:16, //set to 16 to avoid processing limitations
+  maxPixels:1e13,
+  //bestEffort: true
+});
+
+var squareMetersF = forestAreaSum.getNumber('area');
+var squareKilometersF = squareMetersF.divide(1e6);
+print("Forest area sq km: ",squareKilometersF);
+
+
+
+//Generate GEE ImageCollection of populations within distance of forests (data layer of population within X km of forests).
+var cost = populationdata1.cumulativeCost({source: forests, 
+  maxDistance:distance, //Select distance parameter in meters. Here, we created data layer of populations within 5 km (5000 m) of forests.
+  geodeticDistance: false});
+var dist2forest = cost.add(1); //set minimum value to 1 instead of 0 to avoid issues with masking layers.
+
+//var dist2forest = populationdata.map(dist2forest);
+
+//-Visualize distance to forests data at 100-meter resolution-
+//Remove comments from following three lines to visualize distance to forests data layer:
+/*
+Map.addLayer(dist2forest, {min:1, max:3, palette: ['24126c', '1fff4f', 'd4ff50']}, 'dist2forest');
+print('dist2forest: ', dist2forest);
+*/
+//Reduce population data ImageCollection and distance to forest ImageCollection to Images.
+var pop_img = populationdata.reduce({reducer: ee.Reducer.median()});
+var dist_img = dist2forest.reduce({reducer: ee.Reducer.median()});
+
+//Map.addLayer(dist_img, {palette:['24126c','70daa4']}, 'dist_img');
+
+//Mask population data with rural area image to generate rural population data layer
+var ruralPop = populationdataimg.mask(ruralImage).selfMask(); //Need to create rural-urban layer asset. Use rural-urban code provided and export asset to user's assets. Call the rural-urban asset layer that was imported into the script (currently called "ruralPopDev50k").
+
+var maskedRuralArea = pixelArea.updateMask(ruralImage).selfMask();
+//Map.addLayer(maskedRuralArea,{},'maskedRuralArea');
+
+var ruralAreaSum = ee.Image(maskedRuralArea).reduceRegion({ //generate sum of TPP population for each country
+  geometry: geom,
+  reducer: ee.Reducer.sum(),
+  scale: 100, //use data layer resolution (~93m) 
+  tileScale:16, //set to 16 to avoid processing limitations
+  maxPixels:1e13,
+  //bestEffort: true
+});
+
+var squareMetersR = ruralAreaSum.getNumber('area');
+var squareKilometersR = squareMetersR.divide(1e6);
+print("Rural area sq km: ",squareKilometersR);
+
+
+var maskedRuralForestArea = maskedRuralArea.updateMask(forests).selfMask();
+//Map.addLayer(maskedRuralForestArea,{},'maskedRuralForestArea');
+
+var ruralForestAreaSum = ee.Image(maskedRuralForestArea).reduceRegion({ //generate sum of TPP population for each country
+  geometry: geom,
+  reducer: ee.Reducer.sum(),
+  scale: 100, //use data layer resolution (~93m) 
+  tileScale:16, //set to 16 to avoid processing limitations
+  maxPixels:1e13,
+  //bestEffort: true
+});
+
+var squareMetersRF = ruralForestAreaSum.getNumber('area');
+var squareKilometersRF = squareMetersRF.divide(1e6);
+print("Forest area on rural lands sq km: ",squareKilometersRF);
+
+//-Visualize rural population by uncommenting the line below.-
+//Map.addLayer(ruralPop, visualization, 'ruralPop');
+
+////Mask rural population data with forest proximate people data layer to generate rural forest proximate people data layer
+var forestPop = ruralPop.mask(dist_img).selfMask();
+
+//-Visualize rural forest proximate people by uncommenting the line below.
+//Map.addLayer(forestPop, visualization, 'forestPop');
+//print('forestPop',forestPop);
+
+
+//To export forest extent and FPP spatial data, uncomment lines below and export GeoTIFF to user's Google Drive through the "Tasks" list.
+var geom = populationdata.geometry();
+//print(geom);
+//Export forest extent data:
+Export.image.toDrive({
+  image: forests,
+  description:ForestimageDescription,
+  folder: "GEE_Folder",
+  scale:100,
+  maxPixels:1e13,
+  region: geom,
+  skipEmptyTiles:true,
+  fileFormat: 'GeoTIFF'
+});
+
+//Export FPP data:
+var forestPop_img = forestPop.reduce({reducer: ee.Reducer.median()}).toFloat();
+
+//Map.addLayer(forestPop_img, visualization, 'forestPop');
+//print('forestPop_img',forestPop_img);
+//print(ee.Image(forestPop_img).projection());
+
+//Export FPP data to GEE asset
+Export.image.toAsset({
+  image: forestPop_img,
+  description:FPPasset,
+  scale:100,
+  maxPixels:1e13,
+  region: geom
+});
+
+//Export FPP data to Google Drive
+Export.image.toDrive({
+  image: forestPop_img,
+  description:FPPimageDescription,
+  folder: "GEE_Folder",
+  scale:100,
+  maxPixels:1e13,
+  region: geom,
+  skipEmptyTiles:true,
+  fileFormat: 'GeoTIFF'
+});
+/*
+var pop_country_list = ee.List([]); //initate empty list to store FPP country level data
+var pop_country_list = pop_country_list.add(forestPop.get(0)); //add current country FPP to list of FPP for all countries
+print(pop_country_list);
+var pop_country_list = ee.FeatureCollection(pop_country_list //function to convert list to FeatureCollection for exporting.
+  .map(function(element){ 
+    return ee.Feature(null,{
+      //'scale':ee.List(element).get(0),
+      'population':ee.List(element).get(0),
+      'country':ee.List(element).get(1)
+    }
+    )}));
+//print(pop_country_list); //print FeatureCollection of FPP data
+Export.table.toDrive({//export FPP results to user's Google Drive in csv format
+    collection:pop_country_list, 
+    folder: "GEE_Folder",
+    description:'FPP_PAK_2017',
+    fileFormat: 'csv'
+    });
+*/
+var pop = ee.Image(forestPop_img).reduceRegions({ //generate sum of FPP population for each country
+  collection: geom,
+  reducer: ee.Reducer.sum(),
+  scale: 93, //use data layer resolution (~93m) 
+  crs: 'EPSG:4326', // world wide crs 
+  tileScale:16 //set to 16 to avoid processing limitations
+});
+
+pop = pop.aggregate_array('sum').get(0);
+
+//Print FPP value for country
+print("Number of forest proximate people in 2017: ",pop);
+
+
+
+//Map.addLayer(povertyAssetMccallum2017, visualization2, 'poverty 2017');
+
+
+
+var poorer = povertyAssetMccallum2017.eq(1);
+
+Export.image.toAsset({
+  image: poorer,
+  description:"McCallum_poorer",
+  scale:100,
+  maxPixels:1e13,
+  region: geom
+});
+
+//Map.addLayer(poorer.selfMask(),visualization2,'poorer');
+var poorerpop = populationdataimg.mask(poorer);
+//Map.addLayer(poorerpop.selfMask(),visualization2,'poorerpop');
+
+var povertypop = ee.Image(poorerpop).reduceRegions({ //generate sum of FPP population for each country
+  collection: geom,
+  reducer: ee.Reducer.sum(),
+  scale: 93, //use data layer resolution (~93m) 
+  crs: 'EPSG:4326', // world wide crs 
+  tileScale:16 //set to 16 to avoid processing limitations
+});
+povertypop = povertypop.aggregate_array('sum').get(0);
+
+//Print FPP value for country
+print("Number of people in poverty in 2017 McCallum: ", povertypop);
+
+var ruralpovimg = poorerpop.mask(ruralImage).selfMask();
+//Map.addLayer(ruralpovimg, visualization2, 'ruralpoverty 2017');
+
+var ruralpovertypop = ee.Image(ruralpovimg).reduceRegions({ //generate sum of FPP population for each country
+  collection: geom,
+  reducer: ee.Reducer.sum(),
+  scale: 93, //use data layer resolution (~93m) 
+  crs: 'EPSG:4326', // world wide crs 
+  tileScale:16 //set to 16 to avoid processing limitations
+});
+ruralpovertypop = ruralpovertypop.aggregate_array('sum').get(0);
+
+//Print FPP value for country
+print("Number of rural people in poverty in 2017 McCallum: ", ruralpovertypop);
+
+
+var FPPpoverty = forestPop.mask(poorer).selfMask();
+//Map.addLayer(FPPpoverty, visualization, 'FPP in poverty 2017');
+//print('FPPpoverty: ',FPPpoverty);
+
+
+var pop_poverty = ee.Image(FPPpoverty).reduceRegions({ //generate sum of FPP population for each country
+  collection: geom,
+  reducer: ee.Reducer.sum(),
+  scale: 93, //use data layer resolution (~93m) 
+  crs: 'EPSG:4326', // world wide crs 
+  tileScale:16 //set to 16 to avoid processing limitations
+});
+
+pop_poverty = pop_poverty.aggregate_array('sum').get(0);
+
+//Print FPP value for country
+print("Number of forest proximate people in poverty in 2017: ", pop_poverty);
+
+//Export FPP data to GEE asset
+Export.image.toAsset({
+  image: FPPpoverty,
+  description:FPPpovertyasset,
+  scale:100,
+  maxPixels:1e13,
+  region: geom
+});
+
+//Export FPP data to Google Drive
+Export.image.toDrive({
+  image: FPPpoverty,
+  description:FPPpovertyimageDescription,
+  folder: "GEE_Folder",
+  scale:100,
+  maxPixels:1e13,
+  region: geom,
+  skipEmptyTiles:true,
+  fileFormat: 'GeoTIFF'
+});
+
+//Generate FPP estimates at district level
+var FPP_district = ee.FeatureCollection(pakistanbounds2).map(function (feature){
+  var districtgeom = feature.geometry();
+  var pop = ee.Image(forestPop).reduceRegion({ //generate sum of FPP  population for each country
+      geometry: districtgeom,
+      reducer: ee.Reducer.sum(),
+      scale: 93, //use data layer resolution (~93m) 
+      crs: 'EPSG:4326', // world wide crs 
+      tileScale:16 //set to 16 to avoid processing limitations
+    });
+  
+     // Set "fpp" as a new property.
+  feature = ee.Feature(feature.set('fpp',pop.get('population_median')));
+
+  // Return a new Feature, copying properties from the old Feature.
+  return feature.centroid();
+});
+
+print('FPP by district: ',FPP_district);
+
+Export.table.toDrive({//export FPP results to user's Google Drive in csv format
+    collection:FPP_district, 
+    folder: "GEE_Folder",
+    description:FPPDistrictTableDescription,
+    fileFormat: 'csv'
+    });
+
+
+//Generate FPP in poverty estimates at district level
+var FPPpoverty_district = ee.FeatureCollection(pakistanbounds2).map(function (feature){
+  var districtgeom = feature.geometry();
+  var popp = ee.Image(FPPpoverty).reduceRegion({ //generate sum of FPP in poverty population for each country
+      geometry: districtgeom,
+      reducer: ee.Reducer.sum(),
+      scale: 93, //use data layer resolution (~93m) 
+      crs: 'EPSG:4326', // world wide crs 
+      tileScale:16 //set to 16 to avoid processing limitations
+    });
+  
+    // Set "fpp_pov" as a new property.
+  feature = ee.Feature(feature.set('fpp_pov',popp.get('population_median')));
+
+  // Return a new Feature, copying properties from the old Feature.
+  return feature.centroid();
+});
+
+print('FPP in poverty by district: ', FPPpoverty_district); 
+
+Export.table.toDrive({//export FPP in poverty results to user's Google Drive in csv format
+    collection:FPPpoverty_district, 
+    folder: "GEE_Folder",
+    description:FPPpovertyDistrictTableDescription,
+    fileFormat: 'csv'
+    });
